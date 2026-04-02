@@ -74,7 +74,7 @@ body { background:#000; display:flex; flex-direction:column; align-items:center;
 <div class="wrapper">
   <canvas id="canvas"></canvas>
   <div id="overlay">
-    <div id="msg">PopMAN</div>
+    <div id="msg">POPMAN</div>
     <div id="sub">PRESS SPACE OR ENTER</div>
   </div>
 </div>
@@ -142,7 +142,7 @@ const OPP = { R:'L', L:'R', U:'D', D:'U' };
 
 let maze, totalDots, score, highScore=0, lives, level, state;
 let powerTimer, eatMult;
-let Pop, ghosts;
+let pop, ghosts;
 
 // ── Maze helpers ──────────────────────────────────────────────────
 function initMaze() {
@@ -158,9 +158,9 @@ function drawMaze() {
     for (let c=0;c<COLS;c++) {
       const px=c*CELL, py=r*CELL, t=maze[r][c];
       if (t===1) {
-        ctx.fillStyle='#1919cc';
+        ctx.fillStyle='#cc1919';
         ctx.fillRect(px,py,CELL,CELL);
-        ctx.fillStyle='#0000aa';
+        ctx.fillStyle='#aa0000';
         ctx.fillRect(px+2,py+2,CELL-4,CELL-4);
       } else if (t===2) {
         // Gold coin
@@ -176,11 +176,48 @@ function drawMaze() {
         ctx.arc(px+HALF-1,py+HALF-1,1.2,0,Math.PI*2);
         ctx.fill();
       } else if (t===3) {
-        const p=0.7+Math.sin(Date.now()/180)*0.3;
-        ctx.fillStyle=`rgba(255,255,255,${p})`;
+        // Wizard's pointed hat sprite
+        const hx = px + HALF, hy = py + HALF;
+        const pulse = 0.85 + Math.sin(Date.now() / 200) * 0.15;
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.scale(pulse, pulse);
+        // Hat brim
+        ctx.fillStyle = '#9933ff';
         ctx.beginPath();
-        ctx.arc(px+HALF,py+HALF,6,0,Math.PI*2);
+        ctx.ellipse(0, 4, 8, 3, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#cc66ff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Hat cone body
+        ctx.fillStyle = '#7700cc';
+        ctx.beginPath();
+        ctx.moveTo(0, -9);
+        ctx.lineTo(-7, 4);
+        ctx.lineTo(7, 4);
+        ctx.closePath();
+        ctx.fill();
+        // Hat stripe
+        ctx.strokeStyle = '#ffdd00';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-3.5, -1);
+        ctx.lineTo(3.5, -1);
+        ctx.stroke();
+        // Star on tip
+        ctx.fillStyle = '#ffdd00';
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 4 * Math.PI / 5) - Math.PI / 2;
+          const ai = a + 2 * Math.PI / 5;
+          if (i === 0) ctx.moveTo(Math.cos(a)*2.5, -9 + Math.sin(a)*2.5);
+          else ctx.lineTo(Math.cos(a)*2.5, -9 + Math.sin(a)*2.5);
+          ctx.lineTo(Math.cos(ai)*1.1, -9 + Math.sin(ai)*1.1);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
       } else if (t===4) {
         ctx.fillStyle='#ffb8ff';
         ctx.fillRect(px+2,py+HALF-1,CELL-4,2);
@@ -206,7 +243,7 @@ function tc(i)        { return i*CELL+HALF; } // tile index → pixel centre
 // dirX/dirY: -1/0/1 tile direction being travelled.
 // wantX/wantY: buffered requested direction from key input.
 function initPop() {
-  Pop = {
+  pop = {
     x: tc(14), y: tc(23),
     dirX:0, dirY:0,
     wantX:-1, wantY:0,   // start wanting to go left
@@ -217,68 +254,68 @@ function initPop() {
 }
 
 function updatePop() {
-  if (Pop.dead) { Pop.deadTimer++; return; }
+  if (pop.dead) { pop.deadTimer++; return; }
 
-  const sp = Math.min(Pop.speed + (level-1)*0.05, 3.5);
+  const sp = Math.min(pop.speed + (level-1)*0.05, 3.5);
 
   // Animate mouth when moving
-  if (Pop.dirX!==0 || Pop.dirY!==0) {
-    Pop.mouth += Pop.mouthOpen ? 0.045 : -0.045;
-    if (Pop.mouth >= 0.42) Pop.mouthOpen = false;
-    if (Pop.mouth <= 0.02) Pop.mouthOpen = true;
+  if (pop.dirX!==0 || pop.dirY!==0) {
+    pop.mouth += pop.mouthOpen ? 0.045 : -0.045;
+    if (pop.mouth >= 0.42) pop.mouthOpen = false;
+    if (pop.mouth <= 0.02) pop.mouthOpen = true;
   }
 
-  // Current tile col/row of Pop centre
-  const col = Math.floor(Pop.x / CELL);
-  const row = Math.floor(Pop.y / CELL);
+  // Current tile col/row of pop centre
+  const col = Math.floor(pop.x / CELL);
+  const row = Math.floor(pop.y / CELL);
   // Pixel centre of that tile
   const cx = tc(col);
   const cy = tc(row);
   // Offset from tile centre
-  const ox = Pop.x - cx;
-  const oy = Pop.y - cy;
+  const ox = pop.x - cx;
+  const oy = pop.y - cy;
 
   // We check / turn when close enough to tile centre
   const threshold = sp + 1;
 
   if (Math.abs(ox) < threshold && Math.abs(oy) < threshold) {
     // Try buffered direction first
-    if (Pop.wantX!==0 || Pop.wantY!==0) {
-      const nc = col+Pop.wantX, nr = row+Pop.wantY;
+    if (pop.wantX!==0 || pop.wantY!==0) {
+      const nc = col+pop.wantX, nr = row+pop.wantY;
       if (!isWall(nc,nr)) {
-        Pop.x = cx; Pop.y = cy;
-        Pop.dirX = Pop.wantX; Pop.dirY = Pop.wantY;
-        Pop.wantX = 0; Pop.wantY = 0;
+        pop.x = cx; pop.y = cy;
+        pop.dirX = pop.wantX; pop.dirY = pop.wantY;
+        pop.wantX = 0; pop.wantY = 0;
       }
     }
     // Advance in current direction if open
-    if (Pop.dirX!==0 || Pop.dirY!==0) {
-      const nc = col+Pop.dirX, nr = row+Pop.dirY;
+    if (pop.dirX!==0 || pop.dirY!==0) {
+      const nc = col+pop.dirX, nr = row+pop.dirY;
       if (isWall(nc, nr)) {
-        Pop.x = cx; Pop.y = cy; // stop at wall
+        pop.x = cx; pop.y = cy; // stop at wall
       } else {
         // Snap to centre axis before advancing
-        if (Pop.dirX!==0) Pop.y = cy;
-        if (Pop.dirY!==0) Pop.x = cx;
-        Pop.x += Pop.dirX * sp;
-        Pop.y += Pop.dirY * sp;
+        if (pop.dirX!==0) pop.y = cy;
+        if (pop.dirY!==0) pop.x = cx;
+        pop.x += pop.dirX * sp;
+        pop.y += pop.dirY * sp;
       }
     }
   } else {
     // Mid-corridor: straighten perpendicular drift, keep going
-    if (Pop.dirX!==0) Pop.y += (cy - Pop.y) * 0.4;
-    if (Pop.dirY!==0) Pop.x += (cx - Pop.x) * 0.4;
-    Pop.x += Pop.dirX * sp;
-    Pop.y += Pop.dirY * sp;
+    if (pop.dirX!==0) pop.y += (cy - pop.y) * 0.4;
+    if (pop.dirY!==0) pop.x += (cx - pop.x) * 0.4;
+    pop.x += pop.dirX * sp;
+    pop.y += pop.dirY * sp;
   }
 
   // Tunnel wrap
-  if (Pop.x < -HALF)   Pop.x = W + HALF - 1;
-  if (Pop.x > W + HALF) Pop.x = HALF;
+  if (pop.x < -HALF)   pop.x = W + HALF - 1;
+  if (pop.x > W + HALF) pop.x = HALF;
 
   // Eat
-  const ec = Math.floor(Pop.x/CELL);
-  const er = Math.floor(Pop.y/CELL);
+  const ec = Math.floor(pop.x/CELL);
+  const er = Math.floor(pop.y/CELL);
   if (er>=0 && er<ROWS && ec>=0 && ec<COLS) {
     if (maze[er][ec]===2) {
       maze[er][ec]=0; score+=10; totalDots--;
@@ -316,20 +353,50 @@ function makeGhost(col, row, color, name, exitDelay) {
 
 
 
+function randomOpenTile() {
+  // Pick a random open (non-wall, non-door) tile
+  const open = [];
+  for (let r = 1; r < ROWS - 1; r++) {
+    for (let c = 1; c < COLS - 1; c++) {
+      const t = MAZE_TEMPLATE[r][c];
+      if (t === 0 || t === 2 || t === 3) {
+        // Avoid spawning right on top of player
+        const px = tc(c), py = tc(r);
+        if (Math.hypot(px - pop.x, py - pop.y) > CELL * 5) {
+          open.push({col: c, row: r});
+        }
+      }
+    }
+  }
+  return open[Math.floor(Math.random() * open.length)];
+}
+
 function initGhosts() {
-  const corners = [
-    { col: 1, row: 1 },       // Top-left
-    { col: 26, row: 1 },      // Top-right
-    { col: 1, row: 29 },      // Bottom-left
-    { col: 26, row: 29 }      // Bottom-right
-  ];
-  
-  ghosts = [
-    makeGhost(corners[0].col, corners[0].row, '#FF0000', 'Blinky',   0),
-    makeGhost(corners[1].col, corners[1].row, '#FFB8FF', 'Pinky',    0),
-    makeGhost(corners[2].col, corners[2].row, '#00FFFF', 'Inky',     0),
-    makeGhost(corners[3].col, corners[3].row, '#FFB852', 'Clyde',    0)
-  ];
+  ghosts = [];
+  // Schedule first bears to spawn
+  scheduleBearSpawn();
+}
+
+const BEAR_COLORS = ['#FF0000','#FFB8FF','#00FFFF','#FFB852'];
+let bearColorIdx = 0;
+let bearSpawnTimer = null;
+
+function scheduleBearSpawn() {
+  if (bearSpawnTimer) clearTimeout(bearSpawnTimer);
+  const delay = (8 + Math.random() * 3) * 1000; // 8-11 seconds
+  bearSpawnTimer = setTimeout(() => {
+    if (state === 'playing') spawnBear();
+    scheduleBearSpawn();
+  }, delay);
+}
+
+function spawnBear() {
+  if (ghosts.length >= 4) return; // max 4 bears at once
+  const tile = randomOpenTile();
+  if (!tile) return;
+  const color = BEAR_COLORS[bearColorIdx % BEAR_COLORS.length];
+  bearColorIdx++;
+  ghosts.push(makeGhost(tile.col, tile.row, color, 'Bear', 0));
 }
 
 
@@ -423,10 +490,10 @@ function updateGhost(g) {
 
 // ── Collision ─────────────────────────────────────────────────────
 function checkCollisions() {
-  if (Pop.dead) return;
+  if (pop.dead) return;
   for (const g of ghosts) {
     if (g.eaten || g.inHouse) continue;
-    if (Math.hypot(Pop.x-g.x, Pop.y-g.y) < 13) {
+    if (Math.hypot(pop.x-g.x, pop.y-g.y) < 13) {
       if (g.frightened) {
         g.eaten=true; g.frightened=false;
         const pts = 200 * (1<<(eatMult-1));
@@ -443,7 +510,7 @@ function checkCollisions() {
 // ── Life / level ──────────────────────────────────────────────────
 function doLoseLife() {
   lives--; updateLivesUI();
-  Pop.dead=true; Pop.deadTimer=0;
+  pop.dead=true; pop.deadTimer=0;
   playDeathSfx();
   if (lives<=0) {
     state='gameover';
@@ -451,7 +518,7 @@ function doLoseLife() {
     showOverlay('GAME OVER','PRESS SPACE OR ENTER');
   } else {
     state='dying';
-    setTimeout(()=>{ initPop(); initGhosts(); powerTimer=0; state='playing'; }, 2200);
+    setTimeout(()=>{ initPop(); initGhosts(); powerTimer=0; scheduleBearSpawn(); state='playing'; }, 2200);
   }
 }
 
@@ -462,8 +529,11 @@ function scheduleNextLevel() {
   state='levelup';
   setTimeout(()=>{
     level++; levelEl.textContent=level;
+    activeFruit = null;
     initMaze(); initPop(); initGhosts();
     powerTimer=0; eatMult=1;
+    scheduleBearSpawn();
+    scheduleFruitSpawn();
     state='playing';
   }, 2000);
 }
@@ -475,8 +545,13 @@ function initGame() {
   score=0; lives=3; level=1;
   scoreEl.textContent=0; levelEl.textContent=1;
   powerTimer=0; eatMult=1;
+  activeFruit = null;
+  bearColorIdx = 0;
+  if (bearSpawnTimer) clearTimeout(bearSpawnTimer);
+  if (fruitSpawnTimer) clearTimeout(fruitSpawnTimer);
   initMaze(); initPop(); initGhosts();
   updateLivesUI();
+  scheduleFruitSpawn();
   state='playing';
   hideOverlay();
 }
@@ -534,10 +609,10 @@ function drawFog() {
     }
   }
   
-  ctx.fillStyle = `rgba(0,0,150,${topAlpha})`;  // Blue rectangle
+  ctx.fillStyle = `rgba(150,0,0,${topAlpha})`;  // Blue rectangle
   ctx.fillRect(0, topStart, W, topEnd);
 
-  ctx.fillStyle = '#222244';
+  ctx.fillStyle = '#442222';
   ctx.fillRect(0, topEnd - 1, W, 2);
 
   // Middle zone (rows 11-20)
@@ -556,10 +631,10 @@ function drawFog() {
     }
   }
   
-  ctx.fillStyle = `rgba(0,0,150,${midAlpha})`;  // Blue rectangle
+  ctx.fillStyle = `rgba(150,0,0,${midAlpha})`;  // Blue rectangle
   ctx.fillRect(0, midStart, W, midEnd - midStart);
 
-  ctx.fillStyle = '#222244';
+  ctx.fillStyle = '#442222';
   ctx.fillRect(0, midEnd - 1, W, 2);
 
   // Bottom zone (rows 21-30)
@@ -577,10 +652,10 @@ function drawFog() {
     }
   }
   
-  ctx.fillStyle = `rgba(0,0,150,${bottomAlpha})`;  // Blue rectangle
+  ctx.fillStyle = `rgba(150,0,0,${bottomAlpha})`;  // Blue rectangle
   ctx.fillRect(0, bottomStart, W, H);
 
-  ctx.fillStyle = '#222244';
+  ctx.fillStyle = '#442222';
   ctx.fillRect(0, bottomStart - 1, W, 2);
 
   // Zone label
@@ -630,17 +705,17 @@ function drawPopOnCtx(c, x, y, r, faceAngle, mouth) {
 
 
 function drawPop() {
-  if (Pop.dead) {
-    const frac = Math.min(Pop.deadTimer / 55, 1);
+  if (pop.dead) {
+    const frac = Math.min(pop.deadTimer / 55, 1);
     if (frac < 1) {
       // Shrink the square as death animation
       const size = 9 * (1 - frac);
       ctx.fillStyle = '#CC0000';
-      ctx.fillRect(Pop.x - size, Pop.y - size, size * 2, size * 2);
+      ctx.fillRect(pop.x - size, pop.y - size, size * 2, size * 2);
     }
     return;
   }
-  drawPopOnCtx(ctx, Pop.x, Pop.y, 9, 0, Pop.mouth);
+  drawPopOnCtx(ctx, pop.x, pop.y, 9, 0, pop.mouth);
 }
 
 
@@ -739,6 +814,161 @@ function shadeColor(hex, amt) {
   g2 = Math.max(0, Math.min(255, g2 + amt));
   b = Math.max(0, Math.min(255, b + amt));
   return '#' + [r,g2,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Fruit system ─────────────────────────────────────────────────
+let activeFruit = null;
+let fruitSpawnTimer = null;
+
+function scheduleFruitSpawn() {
+  if (fruitSpawnTimer) clearTimeout(fruitSpawnTimer);
+  const delay = (12 + Math.random() * 3) * 1000; // 12-15 seconds
+  fruitSpawnTimer = setTimeout(() => {
+    if (state === 'playing') spawnFruit();
+    scheduleFruitSpawn();
+  }, delay);
+}
+
+function spawnFruit() {
+  if (activeFruit) return;
+  const types = ['pineapple', 'coconut', 'banana'];
+  const type = types[Math.floor(Math.random() * types.length)];
+  const points = 50 + Math.floor(Math.random() * 51); // 50-100
+  const stayMs = (5 + Math.random() * 3) * 1000; // 5-8 seconds visible
+  const blinkMs = 3000;
+
+  // Find a random open tile away from player
+  const open = [];
+  for (let r = 1; r < ROWS - 1; r++) {
+    for (let c = 1; c < COLS - 1; c++) {
+      const t = MAZE_TEMPLATE[r][c];
+      if ((t === 0 || t === 2) && maze[r][c] !== 2) {
+        const px = tc(c), py = tc(r);
+        if (Math.hypot(px - pop.x, py - pop.y) > CELL * 4) {
+          open.push({col: c, row: r});
+        }
+      }
+    }
+  }
+  if (!open.length) return;
+  const tile = open[Math.floor(Math.random() * open.length)];
+
+  activeFruit = {
+    type, points,
+    x: tc(tile.col), y: tc(tile.row),
+    spawnTime: Date.now(),
+    stayMs, blinkMs,
+    collected: false,
+  };
+}
+
+function updateFruit() {
+  if (!activeFruit || activeFruit.collected) return;
+  const age = Date.now() - activeFruit.spawnTime;
+  if (age > activeFruit.stayMs + activeFruit.blinkMs) {
+    activeFruit = null;
+  }
+}
+
+function checkFruitCollision() {
+  if (!activeFruit || activeFruit.collected) return;
+  if (Math.hypot(pop.x - activeFruit.x, pop.y - activeFruit.y) < 14) {
+    activeFruit.collected = true;
+    score += activeFruit.points;
+    scoreEl.textContent = score;
+    playEatGhostSfx();
+    // Show score popup briefly
+    activeFruit.popupTimer = 60;
+    setTimeout(() => { activeFruit = null; }, 800);
+  }
+}
+
+function drawFruit() {
+  if (!activeFruit || activeFruit.collected) {
+    if (activeFruit && activeFruit.collected && activeFruit.popupTimer > 0) {
+      // Draw score popup
+      activeFruit.popupTimer--;
+      ctx.save();
+      ctx.globalAlpha = activeFruit.popupTimer / 60;
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('+' + activeFruit.points, activeFruit.x, activeFruit.y - 12);
+      ctx.restore();
+    }
+    return;
+  }
+  const age = Date.now() - activeFruit.spawnTime;
+  const blinkStart = activeFruit.stayMs;
+  let alpha = 1;
+  if (age > blinkStart) {
+    // Blinking phase
+    alpha = Math.floor((age - blinkStart) / 200) % 2 === 0 ? 1 : 0;
+  }
+  if (alpha === 0) return;
+
+  const x = activeFruit.x, y = activeFruit.y;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  drawFruitSprite(ctx, activeFruit.type, x, y);
+  ctx.restore();
+}
+
+function drawFruitSprite(c, type, x, y) {
+  c.save();
+  c.translate(x, y);
+  if (type === 'pineapple') {
+    // Body - yellow-green oval
+    c.fillStyle = '#e8c000';
+    c.beginPath(); c.ellipse(0, 2, 5, 7, 0, 0, Math.PI*2); c.fill();
+    // Cross-hatch pattern
+    c.strokeStyle = '#b89000'; c.lineWidth = 0.8;
+    for (let i = -4; i <= 4; i += 2) {
+      c.beginPath(); c.moveTo(-5, i); c.lineTo(5, i); c.stroke();
+      c.beginPath(); c.moveTo(i-2, -5); c.lineTo(i+2, 7); c.stroke();
+    }
+    // Leaves
+    c.fillStyle = '#22aa22';
+    c.beginPath(); c.moveTo(0,-5); c.lineTo(-4,-10); c.lineTo(-1,-7); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(0,-5); c.lineTo(4,-10); c.lineTo(1,-7); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(0,-5); c.lineTo(0,-11); c.lineTo(1,-7); c.closePath(); c.fill();
+  } else if (type === 'coconut') {
+    // Brown hairy sphere
+    c.fillStyle = '#6b3a1f';
+    c.beginPath(); c.arc(0, 0, 8, 0, Math.PI*2); c.fill();
+    c.fillStyle = '#8b5a2b';
+    c.beginPath(); c.arc(-2, -2, 5, 0, Math.PI*2); c.fill();
+    // Three eyes
+    c.fillStyle = '#2a1000';
+    c.beginPath(); c.arc(-2, -1, 1.2, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.arc(1, -3, 1.2, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.arc(2, 0, 1.2, 0, Math.PI*2); c.fill();
+    // Hairy outline
+    c.strokeStyle = '#3d1f00'; c.lineWidth = 1;
+    for (let a = 0; a < Math.PI*2; a += 0.5) {
+      c.beginPath();
+      c.moveTo(Math.cos(a)*7, Math.sin(a)*7);
+      c.lineTo(Math.cos(a)*9, Math.sin(a)*9);
+      c.stroke();
+    }
+  } else if (type === 'banana') {
+    // Curved yellow shape
+    c.strokeStyle = '#ffe000'; c.lineWidth = 5; c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(-6, 6);
+    c.quadraticCurveTo(2, -12, 7, -3);
+    c.stroke();
+    c.strokeStyle = '#c8a000'; c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(-5, 5);
+    c.quadraticCurveTo(2, -10, 6, -2);
+    c.stroke();
+    // Tips
+    c.fillStyle = '#886600';
+    c.beginPath(); c.arc(-6, 6, 1.5, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.arc(7, -3, 1.5, 0, Math.PI*2); c.fill();
+  }
+  c.restore();
 }
 
 // ── Audio engine (Web Audio API) ──────────────────────────────────
@@ -877,7 +1107,7 @@ const ZONE_LABELS = ['TOP', 'MIDDLE', 'BOTTOM'];
 
 
 function getPlayerZone() {
-  const row = Math.floor(Pop.y / CELL);
+  const row = Math.floor(pop.y / CELL);
   if (row <= 10) return 0;
   if (row <= 20) return 1;
   return 2;
@@ -925,16 +1155,17 @@ function loop() {
     }
 
     if (state==='playing') checkCollisions();
+    if (state==='playing') { updateFruit(); checkFruitCollision(); }
   }
 
   drawPop();
   ghosts.forEach(drawGhost);
-
+  drawFruit();
   drawFog(); //added
 
 
   if (powerTimer>0) {
-    ctx.fillStyle='rgba(60,60,255,0.3)';
+    ctx.fillStyle='rgba(180,0,0,0.4)';
     ctx.fillRect(0,H-4,W*(powerTimer/380),4);
   }
 
@@ -968,10 +1199,10 @@ document.addEventListener('keydown', e=>{
     return;
   }
   if (state!=='playing' || paused) return;
-  if (e.code==='ArrowLeft' ||e.code==='KeyA') { Pop.wantX=-1; Pop.wantY= 0; }
-  if (e.code==='ArrowRight'||e.code==='KeyD') { Pop.wantX= 1; Pop.wantY= 0; }
-  if (e.code==='ArrowUp'   ||e.code==='KeyW') { Pop.wantX= 0; Pop.wantY=-1; }
-  if (e.code==='ArrowDown' ||e.code==='KeyS') { Pop.wantX= 0; Pop.wantY= 1; }
+  if (e.code==='ArrowLeft' ||e.code==='KeyA') { pop.wantX=-1; pop.wantY= 0; }
+  if (e.code==='ArrowRight'||e.code==='KeyD') { pop.wantX= 1; pop.wantY= 0; }
+  if (e.code==='ArrowUp'   ||e.code==='KeyW') { pop.wantX= 0; pop.wantY=-1; }
+  if (e.code==='ArrowDown' ||e.code==='KeyS') { pop.wantX= 0; pop.wantY= 1; }
   e.preventDefault();
 });
 
@@ -982,8 +1213,8 @@ canvas.addEventListener('touchend',e=>{
   if (state==='title'||state==='gameover') { initGame(); return; }
   if (state!=='playing') return;
   const dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0;
-  if (Math.abs(dx)>Math.abs(dy)) { Pop.wantX=dx>0?1:-1; Pop.wantY=0; }
-  else                            { Pop.wantX=0; Pop.wantY=dy>0?1:-1; }
+  if (Math.abs(dx)>Math.abs(dy)) { pop.wantX=dx>0?1:-1; pop.wantY=0; }
+  else                            { pop.wantX=0; pop.wantY=dy>0?1:-1; }
   e.preventDefault();
 },{passive:false});
 
@@ -997,7 +1228,7 @@ initPop();
 initGhosts();
 updateLivesUI();
 
-showOverlay('PopMAN','PRESS SPACE OR ENTER');
+showOverlay('POPMAN','PRESS SPACE OR ENTER');
 
 requestAnimationFrame(loop); // ✅ start loop properly
 </script>
