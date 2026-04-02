@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PuckMan</title>
+<title>PopMan</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; color:#fff; font-family:monospace; }
@@ -72,7 +72,7 @@ body { background:#000; display:flex; flex-direction:column; align-items:center;
 <div class="wrapper">
   <canvas id="canvas"></canvas>
   <div id="overlay">
-    <div id="msg">PUCKMAN</div>
+    <div id="msg">PopMAN</div>
     <div id="sub">PRESS SPACE OR ENTER</div>
   </div>
 </div>
@@ -140,7 +140,7 @@ const OPP = { R:'L', L:'R', U:'D', D:'U' };
 
 let maze, totalDots, score, highScore=0, lives, level, state;
 let powerTimer, eatMult;
-let puck, ghosts;
+let Pop, ghosts;
 
 // ── Maze helpers ──────────────────────────────────────────────────
 function initMaze() {
@@ -199,12 +199,12 @@ function isWall(c,r)  { return tileAt(c,r)===1; }
 function isDoor(c,r)  { return tileAt(c,r)===4; }
 function tc(i)        { return i*CELL+HALF; } // tile index → pixel centre
 
-// ── PuckMan ───────────────────────────────────────────────────────
+// ── PopMan ───────────────────────────────────────────────────────
 // Position stored as pixel centre (x,y).
 // dirX/dirY: -1/0/1 tile direction being travelled.
 // wantX/wantY: buffered requested direction from key input.
-function initPuck() {
-  puck = {
+function initPop() {
+  Pop = {
     x: tc(14), y: tc(23),
     dirX:0, dirY:0,
     wantX:-1, wantY:0,   // start wanting to go left
@@ -214,69 +214,69 @@ function initPuck() {
   };
 }
 
-function updatePuck() {
-  if (puck.dead) { puck.deadTimer++; return; }
+function updatePop() {
+  if (Pop.dead) { Pop.deadTimer++; return; }
 
-  const sp = Math.min(puck.speed + (level-1)*0.05, 3.5);
+  const sp = Math.min(Pop.speed + (level-1)*0.05, 3.5);
 
   // Animate mouth when moving
-  if (puck.dirX!==0 || puck.dirY!==0) {
-    puck.mouth += puck.mouthOpen ? 0.045 : -0.045;
-    if (puck.mouth >= 0.42) puck.mouthOpen = false;
-    if (puck.mouth <= 0.02) puck.mouthOpen = true;
+  if (Pop.dirX!==0 || Pop.dirY!==0) {
+    Pop.mouth += Pop.mouthOpen ? 0.045 : -0.045;
+    if (Pop.mouth >= 0.42) Pop.mouthOpen = false;
+    if (Pop.mouth <= 0.02) Pop.mouthOpen = true;
   }
 
-  // Current tile col/row of puck centre
-  const col = Math.floor(puck.x / CELL);
-  const row = Math.floor(puck.y / CELL);
+  // Current tile col/row of Pop centre
+  const col = Math.floor(Pop.x / CELL);
+  const row = Math.floor(Pop.y / CELL);
   // Pixel centre of that tile
   const cx = tc(col);
   const cy = tc(row);
   // Offset from tile centre
-  const ox = puck.x - cx;
-  const oy = puck.y - cy;
+  const ox = Pop.x - cx;
+  const oy = Pop.y - cy;
 
   // We check / turn when close enough to tile centre
   const threshold = sp + 1;
 
   if (Math.abs(ox) < threshold && Math.abs(oy) < threshold) {
     // Try buffered direction first
-    if (puck.wantX!==0 || puck.wantY!==0) {
-      const nc = col+puck.wantX, nr = row+puck.wantY;
+    if (Pop.wantX!==0 || Pop.wantY!==0) {
+      const nc = col+Pop.wantX, nr = row+Pop.wantY;
       if (!isWall(nc,nr)) {
-        puck.x = cx; puck.y = cy;
-        puck.dirX = puck.wantX; puck.dirY = puck.wantY;
-        puck.wantX = 0; puck.wantY = 0;
+        Pop.x = cx; Pop.y = cy;
+        Pop.dirX = Pop.wantX; Pop.dirY = Pop.wantY;
+        Pop.wantX = 0; Pop.wantY = 0;
       }
     }
     // Advance in current direction if open
-    if (puck.dirX!==0 || puck.dirY!==0) {
-      const nc = col+puck.dirX, nr = row+puck.dirY;
+    if (Pop.dirX!==0 || Pop.dirY!==0) {
+      const nc = col+Pop.dirX, nr = row+Pop.dirY;
       if (isWall(nc, nr)) {
-        puck.x = cx; puck.y = cy; // stop at wall
+        Pop.x = cx; Pop.y = cy; // stop at wall
       } else {
         // Snap to centre axis before advancing
-        if (puck.dirX!==0) puck.y = cy;
-        if (puck.dirY!==0) puck.x = cx;
-        puck.x += puck.dirX * sp;
-        puck.y += puck.dirY * sp;
+        if (Pop.dirX!==0) Pop.y = cy;
+        if (Pop.dirY!==0) Pop.x = cx;
+        Pop.x += Pop.dirX * sp;
+        Pop.y += Pop.dirY * sp;
       }
     }
   } else {
     // Mid-corridor: straighten perpendicular drift, keep going
-    if (puck.dirX!==0) puck.y += (cy - puck.y) * 0.4;
-    if (puck.dirY!==0) puck.x += (cx - puck.x) * 0.4;
-    puck.x += puck.dirX * sp;
-    puck.y += puck.dirY * sp;
+    if (Pop.dirX!==0) Pop.y += (cy - Pop.y) * 0.4;
+    if (Pop.dirY!==0) Pop.x += (cx - Pop.x) * 0.4;
+    Pop.x += Pop.dirX * sp;
+    Pop.y += Pop.dirY * sp;
   }
 
   // Tunnel wrap
-  if (puck.x < -HALF)   puck.x = W + HALF - 1;
-  if (puck.x > W + HALF) puck.x = HALF;
+  if (Pop.x < -HALF)   Pop.x = W + HALF - 1;
+  if (Pop.x > W + HALF) Pop.x = HALF;
 
   // Eat
-  const ec = Math.floor(puck.x/CELL);
-  const er = Math.floor(puck.y/CELL);
+  const ec = Math.floor(Pop.x/CELL);
+  const er = Math.floor(Pop.y/CELL);
   if (er>=0 && er<ROWS && ec>=0 && ec<COLS) {
     if (maze[er][ec]===2) {
       maze[er][ec]=0; score+=10; totalDots--;
@@ -421,10 +421,10 @@ function updateGhost(g) {
 
 // ── Collision ─────────────────────────────────────────────────────
 function checkCollisions() {
-  if (puck.dead) return;
+  if (Pop.dead) return;
   for (const g of ghosts) {
     if (g.eaten || g.inHouse) continue;
-    if (Math.hypot(puck.x-g.x, puck.y-g.y) < 13) {
+    if (Math.hypot(Pop.x-g.x, Pop.y-g.y) < 13) {
       if (g.frightened) {
         g.eaten=true; g.frightened=false;
         const pts = 200 * (1<<(eatMult-1));
@@ -441,7 +441,7 @@ function checkCollisions() {
 // ── Life / level ──────────────────────────────────────────────────
 function doLoseLife() {
   lives--; updateLivesUI();
-  puck.dead=true; puck.deadTimer=0;
+  Pop.dead=true; Pop.deadTimer=0;
   playDeathSfx();
   if (lives<=0) {
     state='gameover';
@@ -449,7 +449,7 @@ function doLoseLife() {
     showOverlay('GAME OVER','PRESS SPACE OR ENTER');
   } else {
     state='dying';
-    setTimeout(()=>{ initPuck(); initGhosts(); powerTimer=0; state='playing'; }, 2200);
+    setTimeout(()=>{ initPop(); initGhosts(); powerTimer=0; state='playing'; }, 2200);
   }
 }
 
@@ -460,7 +460,7 @@ function scheduleNextLevel() {
   state='levelup';
   setTimeout(()=>{
     level++; levelEl.textContent=level;
-    initMaze(); initPuck(); initGhosts();
+    initMaze(); initPop(); initGhosts();
     powerTimer=0; eatMult=1;
     state='playing';
   }, 2000);
@@ -473,7 +473,7 @@ function initGame() {
   score=0; lives=3; level=1;
   scoreEl.textContent=0; levelEl.textContent=1;
   powerTimer=0; eatMult=1;
-  initMaze(); initPuck(); initGhosts();
+  initMaze(); initPop(); initGhosts();
   updateLivesUI();
   state='playing';
   hideOverlay();
@@ -490,7 +490,7 @@ function updateLivesUI() {
   for (let i=0;i<lives;i++) {
     const c=document.createElement('canvas');
     c.width=18; c.height=18;
-    drawPuckOnCtx(c.getContext('2d'),9,9,8,0,0.28);
+    drawPopOnCtx(c.getContext('2d'),9,9,8,0,0.28);
     livesRow.appendChild(c);
   }
 }
@@ -612,7 +612,7 @@ function updateFog() {
 
 
 
-function drawPuckOnCtx(c, x, y, r, faceAngle, mouth) {
+function drawPopOnCtx(c, x, y, r, faceAngle, mouth) {
   // Draw as a red square
   const size = r * 2;
   c.fillStyle = '#CC0000';
@@ -627,18 +627,18 @@ function drawPuckOnCtx(c, x, y, r, faceAngle, mouth) {
 
 
 
-function drawPuck() {
-  if (puck.dead) {
-    const frac = Math.min(puck.deadTimer / 55, 1);
+function drawPop() {
+  if (Pop.dead) {
+    const frac = Math.min(Pop.deadTimer / 55, 1);
     if (frac < 1) {
       // Shrink the square as death animation
       const size = 9 * (1 - frac);
       ctx.fillStyle = '#CC0000';
-      ctx.fillRect(puck.x - size, puck.y - size, size * 2, size * 2);
+      ctx.fillRect(Pop.x - size, Pop.y - size, size * 2, size * 2);
     }
     return;
   }
-  drawPuckOnCtx(ctx, puck.x, puck.y, 9, 0, puck.mouth);
+  drawPopOnCtx(ctx, Pop.x, Pop.y, 9, 0, Pop.mouth);
 }
 
 
@@ -875,7 +875,7 @@ const ZONE_LABELS = ['TOP', 'MIDDLE', 'BOTTOM'];
 
 
 function getPlayerZone() {
-  const row = Math.floor(puck.y / CELL);
+  const row = Math.floor(Pop.y / CELL);
   if (row <= 10) return 0;
   if (row <= 20) return 1;
   return 2;
@@ -907,7 +907,7 @@ function loop() {
   drawMaze(); /////undefined
 
   if (!paused && (state==='playing'||state==='dying')) {
-    updatePuck();
+    updatePop();
     ghosts.forEach(updateGhost);
 
     updateFog();
@@ -925,7 +925,7 @@ function loop() {
     if (state==='playing') checkCollisions();
   }
 
-  drawPuck();
+  drawPop();
   ghosts.forEach(drawGhost);
 
   drawFog(); //added
@@ -966,10 +966,10 @@ document.addEventListener('keydown', e=>{
     return;
   }
   if (state!=='playing' || paused) return;
-  if (e.code==='ArrowLeft' ||e.code==='KeyA') { puck.wantX=-1; puck.wantY= 0; }
-  if (e.code==='ArrowRight'||e.code==='KeyD') { puck.wantX= 1; puck.wantY= 0; }
-  if (e.code==='ArrowUp'   ||e.code==='KeyW') { puck.wantX= 0; puck.wantY=-1; }
-  if (e.code==='ArrowDown' ||e.code==='KeyS') { puck.wantX= 0; puck.wantY= 1; }
+  if (e.code==='ArrowLeft' ||e.code==='KeyA') { Pop.wantX=-1; Pop.wantY= 0; }
+  if (e.code==='ArrowRight'||e.code==='KeyD') { Pop.wantX= 1; Pop.wantY= 0; }
+  if (e.code==='ArrowUp'   ||e.code==='KeyW') { Pop.wantX= 0; Pop.wantY=-1; }
+  if (e.code==='ArrowDown' ||e.code==='KeyS') { Pop.wantX= 0; Pop.wantY= 1; }
   e.preventDefault();
 });
 
@@ -980,8 +980,8 @@ canvas.addEventListener('touchend',e=>{
   if (state==='title'||state==='gameover') { initGame(); return; }
   if (state!=='playing') return;
   const dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0;
-  if (Math.abs(dx)>Math.abs(dy)) { puck.wantX=dx>0?1:-1; puck.wantY=0; }
-  else                            { puck.wantX=0; puck.wantY=dy>0?1:-1; }
+  if (Math.abs(dx)>Math.abs(dy)) { Pop.wantX=dx>0?1:-1; Pop.wantY=0; }
+  else                            { Pop.wantX=0; Pop.wantY=dy>0?1:-1; }
   e.preventDefault();
 },{passive:false});
 
@@ -991,11 +991,11 @@ state='title';
 score=0; lives=3;
 
 initMaze();
-initPuck();
+initPop();
 initGhosts();
 updateLivesUI();
 
-showOverlay('PUCKMAN','PRESS SPACE OR ENTER');
+showOverlay('PopMAN','PRESS SPACE OR ENTER');
 
 requestAnimationFrame(loop); // ✅ start loop properly
 </script>
