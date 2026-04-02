@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PuckMan</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; color:#fff; font-family:monospace; }
+#topbar { display:flex; justify-content:space-between; align-items:center; width:560px; padding:6px 4px; font-size:13px; }
+#topbar span { color:#FFD700; }
+#topbar label { color:#aaa; }
+#scores { display:flex; gap:18px; align-items:center; }
+#controls { display:flex; align-items:center; gap:8px; }
+#btnPause {
+  background:#111; border:1.5px solid #FFD700; color:#FFD700;
+  font-family:monospace; font-size:11px; padding:4px 10px;
+  cursor:pointer; border-radius:4px; letter-spacing:1px;
+}
+#btnPause:hover { background:#222; }
+#btnPause.paused { background:#FFD700; color:#000; }
+#audioPanel { display:none; align-items:center; gap:8px; }
+#audioPanel.visible { display:flex; animation:fadeIn 0.15s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:none} }
+#btnSfx {
+  background:#111; border:1.5px solid #888; color:#ccc;
+  font-family:monospace; font-size:10px; padding:3px 8px;
+  cursor:pointer; border-radius:4px; white-space:nowrap;
+}
+#btnSfx.on  { border-color:#0f0; color:#0f0; }
+#btnSfx.off { border-color:#f44; color:#f44; }
+#volLabel { color:#888; font-size:10px; white-space:nowrap; }
+#volSlider {
+  -webkit-appearance:none; appearance:none;
+  width:80px; height:4px; border-radius:2px;
+  background:#444; outline:none; cursor:pointer;
+}
+#volSlider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:13px; height:13px;
+  border-radius:50%; background:#FFD700; cursor:pointer;
+}
+#volSlider::-moz-range-thumb {
+  width:13px; height:13px; border-radius:50%;
+  background:#FFD700; cursor:pointer; border:none;
+}
+.wrapper { position:relative; }
+#canvas { display:block; }
+#overlay { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; pointer-events:none; }
+#msg { font-size:26px; color:#FFD700; letter-spacing:3px; }
+#sub { font-size:12px; color:#fff; animation:blink 1s step-start infinite; }
+#botbar { display:flex; align-items:center; gap:10px; width:560px; padding:4px; font-size:12px; color:#aaa; }
+#livesRow { display:flex; gap:6px; }
+@keyframes blink { 50%{opacity:0} }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div id="scores">
+    <div><label>SCORE </label><span id="scoreEl">0</span></div>
+    <div><label>BEST </label><span id="highEl">0</span></div>
+    <div><label>LEVEL </label><span id="levelEl">1</span></div>
+  </div>
+  <div id="controls">
+    <div id="audioPanel">
+      <button id="btnSfx" class="on">SFX ON</button>
+      <label id="volLabel">VOL</label>
+      <input id="volSlider" type="range" min="0" max="100" value="70">
+    </div>
+    <button id="btnPause">&#9646;&#9646; PAUSE</button>
+  </div>
+</div>
+<div class="wrapper">
+  <canvas id="canvas"></canvas>
+  <div id="overlay">
+    <div id="msg">PUCKMAN</div>
+    <div id="sub">PRESS SPACE OR ENTER</div>
+  </div>
+</div>
+<div id="botbar">LIVES: <div id="livesRow"></div></div>
+
+<script>
+const CELL = 20;
+const COLS = 28;
+const ROWS = 31;
+const W = COLS * CELL;
+const H = ROWS * CELL;
+const HALF = CELL / 2;
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+canvas.width  = W;
+canvas.height = H;
+
+const scoreEl  = document.getElementById('scoreEl');
+const highEl   = document.getElementById('highEl');
+const levelEl  = document.getElementById('levelEl');
+const overlay  = document.getElementById('overlay');
+const msgEl    = document.getElementById('msg');
+const subEl    = document.getElementById('sub');
+const livesRow = document.getElementById('livesRow');
+
+// Maze: 0=open 1=wall 2=dot 3=power 4=door
+const MAZE_TEMPLATE = [
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+ [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],
+ [1,3,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,3,1],
+ [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],
+ [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+ [1,2,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,2,1],
+ [1,2,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,2,1],
+ [1,2,2,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,2,2,1],
+ [1,1,1,1,1,1,2,1,1,1,1,1,0,1,1,0,1,1,1,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,1,1,1,0,1,1,0,1,1,1,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,0,0,0,0,0,0,0,0,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,1,1,1,4,4,1,1,1,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,1,0,0,0,0,0,0,1,0,1,1,2,1,1,1,1,1,1],
+ [0,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,1,0,0,0,2,0,0,0,0,0,0],
+ [1,1,1,1,1,1,2,1,1,0,1,0,0,0,0,0,0,1,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,0,0,0,0,0,0,0,0,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1],
+ [1,1,1,1,1,1,2,1,1,0,1,1,1,1,1,1,1,1,0,1,1,2,1,1,1,1,1,1],
+ [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],
+ [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],
+ [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],
+ [1,3,2,2,1,1,2,2,2,2,2,2,2,0,0,2,2,2,2,2,2,2,1,1,2,2,3,1],
+ [1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,2,1,1,1],
+ [1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,2,1,1,1],
+ [1,2,2,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,2,2,1],
+ [1,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,2,1],
+ [1,2,1,1,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,1,1,2,1],
+ [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+// Direction vectors [dx, dy] in tile steps
+const DIR = { R:[1,0], L:[-1,0], U:[0,-1], D:[0,1] };
+const OPP = { R:'L', L:'R', U:'D', D:'U' };
+
+let maze, totalDots, score, highScore=0, lives, level, state;
+let powerTimer, eatMult;
+let puck, ghosts;
+
+// ── Maze helpers ──────────────────────────────────────────────────
+function initMaze() {
+  maze = MAZE_TEMPLATE.map(r => [...r]);
+  totalDots = 0;
+  for (let r=0;r<ROWS;r++)
+    for (let c=0;c<COLS;c++)
+      if (maze[r][c]===2 || maze[r][c]===3) totalDots++;
+}
+
+function drawMaze() {
+  for (let r=0;r<ROWS;r++) {
+    for (let c=0;c<COLS;c++) {
+      const px=c*CELL, py=r*CELL, t=maze[r][c];
+      if (t===1) {
+        ctx.fillStyle='#1919cc';
+        ctx.fillRect(px,py,CELL,CELL);
+        ctx.fillStyle='#0000aa';
+        ctx.fillRect(px+2,py+2,CELL-4,CELL-4);
+      } else if (t===2) {
+        ctx.fillStyle='#ffcc00';
+        ctx.beginPath();
+        ctx.arc(px+HALF,py+HALF,2.5,0,Math.PI*2);
+        ctx.fill();
+      } else if (t===3) {
+        const p=0.7+Math.sin(Date.now()/180)*0.3;
+        ctx.fillStyle=`rgba(255,255,255,${p})`;
+        ctx.beginPath();
+        ctx.arc(px+HALF,py+HALF,6,0,Math.PI*2);
+        ctx.fill();
+      } else if (t===4) {
+        ctx.fillStyle='#ffb8ff';
+        ctx.fillRect(px+2,py+HALF-1,CELL-4,2);
+      }
+    }
+  }
+}
+
+
+
+
+function tileAt(c, r) {
+  if (r<0||r>=ROWS) return 1;
+  c = ((c%COLS)+COLS)%COLS;
+  return maze[r][c];
+}
+function isWall(c,r)  { return tileAt(c,r)===1; }
+function isDoor(c,r)  { return tileAt(c,r)===4; }
+function tc(i)        { return i*CELL+HALF; } // tile index → pixel centre
+
+// ── PuckMan ───────────────────────────────────────────────────────
+// Position stored as pixel centre (x,y).
+// dirX/dirY: -1/0/1 tile direction being travelled.
+// wantX/wantY: buffered requested direction from key input.
+function initPuck() {
+  puck = {
+    x: tc(14), y: tc(23),
+    dirX:0, dirY:0,
+    wantX:-1, wantY:0,   // start wanting to go left
+    speed: 2.0,
+    mouth:0.05, mouthOpen:true,
+    dead:false, deadTimer:0,
+  };
+}
+
+function updatePuck() {
+  if (puck.dead) { puck.deadTimer++; return; }
+
+  const sp = Math.min(puck.speed + (level-1)*0.05, 3.5);
+
+  // Animate mouth when moving
+  if (puck.dirX!==0 || puck.dirY!==0) {
+    puck.mouth += puck.mouthOpen ? 0.045 : -0.045;
+    if (puck.mouth >= 0.42) puck.mouthOpen = false;
+    if (puck.mouth <= 0.02) puck.mouthOpen = true;
+  }
+
+  // Current tile col/row of puck centre
+  const col = Math.floor(puck.x / CELL);
+  const row = Math.floor(puck.y / CELL);
+  // Pixel centre of that tile
+  const cx = tc(col);
+  const cy = tc(row);
+  // Offset from tile centre
+  const ox = puck.x - cx;
+  const oy = puck.y - cy;
+
+  // We check / turn when close enough to tile centre
+  const threshold = sp + 1;
+
+  if (Math.abs(ox) < threshold && Math.abs(oy) < threshold) {
+    // Try buffered direction first
+    if (puck.wantX!==0 || puck.wantY!==0) {
+      const nc = col+puck.wantX, nr = row+puck.wantY;
+      if (!isWall(nc,nr)) {
+        puck.x = cx; puck.y = cy;
+        puck.dirX = puck.wantX; puck.dirY = puck.wantY;
+        puck.wantX = 0; puck.wantY = 0;
+      }
+    }
+    // Advance in current direction if open
+    if (puck.dirX!==0 || puck.dirY!==0) {
+      const nc = col+puck.dirX, nr = row+puck.dirY;
+      if (isWall(nc, nr)) {
+        puck.x = cx; puck.y = cy; // stop at wall
+      } else {
+        // Snap to centre axis before advancing
+        if (puck.dirX!==0) puck.y = cy;
+        if (puck.dirY!==0) puck.x = cx;
+        puck.x += puck.dirX * sp;
+        puck.y += puck.dirY * sp;
+      }
+    }
+  } else {
+    // Mid-corridor: straighten perpendicular drift, keep going
+    if (puck.dirX!==0) puck.y += (cy - puck.y) * 0.4;
+    if (puck.dirY!==0) puck.x += (cx - puck.x) * 0.4;
+    puck.x += puck.dirX * sp;
+    puck.y += puck.dirY * sp;
+  }
+
+  // Tunnel wrap
+  if (puck.x < -HALF)   puck.x = W + HALF - 1;
+  if (puck.x > W + HALF) puck.x = HALF;
+
+  // Eat
+  const ec = Math.floor(puck.x/CELL);
+  const er = Math.floor(puck.y/CELL);
+  if (er>=0 && er<ROWS && ec>=0 && ec<COLS) {
+    if (maze[er][ec]===2) {
+      maze[er][ec]=0; score+=10; totalDots--;
+      scoreEl.textContent = score;
+      playDotSfx();
+      if (totalDots<=0) scheduleNextLevel();
+    } else if (maze[er][ec]===3) {
+      maze[er][ec]=0; score+=50; totalDots--;
+      scoreEl.textContent = score;
+      if (totalDots<=0) scheduleNextLevel();
+      powerTimer = 380;
+      eatMult = 1;
+      ghosts.forEach(g => { if(!g.eaten) g.frightened=true; });
+      playPowerSfx();
+    }
+  }
+}
+
+
+
+function makeGhost(col, row, color, name, exitDelay) {
+  return {
+    x: tc(col), y: tc(row),
+    dk:'L',             // direction key
+    color, name,
+    speed: 1.8,
+    frightened:false, eaten:false,
+    inHouse: false,     // ✅ Changed from exitDelay>0 to always false
+    exitDelay,
+    bounce:0,           // house bounce phase
+    homeCol:13, homeRow:11,
+  };
+}
+
+
+
+
+function initGhosts() {
+  const corners = [
+    { col: 1, row: 1 },       // Top-left
+    { col: 26, row: 1 },      // Top-right
+    { col: 1, row: 29 },      // Bottom-left
+    { col: 26, row: 29 }      // Bottom-right
+  ];
+  
+  ghosts = [
+    makeGhost(corners[0].col, corners[0].row, '#FF0000', 'Blinky',   0),
+    makeGhost(corners[1].col, corners[1].row, '#FFB8FF', 'Pinky',    0),
+    makeGhost(corners[2].col, corners[2].row, '#00FFFF', 'Inky',     0),
+    makeGhost(corners[3].col, corners[3].row, '#FFB852', 'Clyde',    0)
+  ];
+}
+
+
+
+
+function canGhostEnter(col, row, isEaten = false) {
+  if (row < 0 || row >= ROWS) return false;
+  const c = ((col % COLS) + COLS) % COLS;
+  const t = tileAt(c, row);
+  // Walls block everyone
+  if (t === 1) return false;
+  // Doors block normal ghosts, but eaten ghosts can pass
+  if (t === 4) return isEaten;
+  return true;
+}
+
+
+
+function updateGhost(g) {
+  const sp = (g.frightened ? 0.95 : g.speed) + (level-1)*0.04;
+
+  // Return home if eaten
+  if (g.eaten) {
+    const hx = tc(g.homeCol), hy = tc(g.homeRow);
+    const dx = hx - g.x, dy = hy - g.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 3) {
+      g.x = hx; g.y = hy;
+      g.eaten = false;
+      g.frightened = false;
+      g.dk = 'R';
+    } else {
+      const spd = sp * 2.5;
+      g.x += (dx / dist) * spd;
+      g.y += (dy / dist) * spd;
+    }
+    return;
+  }
+
+  // Move in current direction
+  const [ddx, ddy] = DIR[g.dk];
+  g.x += ddx * sp;
+  g.y += ddy * sp;
+
+  // Tunnel wrap
+  if (g.x < -HALF) g.x = W + HALF - 1;
+  if (g.x > W + HALF) g.x = HALF;
+
+  // Get current tile
+  const col = Math.floor(g.x / CELL);
+  const row = Math.floor(g.y / CELL);
+  const cx = tc(col);
+  const cy = tc(row);
+
+  // Check if near tile centre
+  if (Math.abs(g.x - cx) < sp + 2 && Math.abs(g.y - cy) < sp + 2) {
+    g.x = cx;
+    g.y = cy;
+
+    // Try to continue in current direction first
+    const [cdx, cdy] = DIR[g.dk];
+    const cNextCol = col + cdx;
+    const cNextRow = row + cdy;
+    
+    // If current direction is blocked, pick a random new direction
+    if (!isWall(cNextCol, cNextRow)) {
+      // Current direction is good, keep it
+      return;
+    }
+
+    // Find valid directions
+    const validDirs = [];
+    for (const [key, [dx, dy]] of Object.entries(DIR)) {
+      const nc = col + dx;
+      const nr = row + dy;
+      if (!isWall(nc, nr)) {
+        validDirs.push(key);
+      }
+    }
+
+    // Pick random valid direction
+    if (validDirs.length > 0) {
+      g.dk = validDirs[Math.floor(Math.random() * validDirs.length)];
+    }
+  }
+}
+
+
+
+
+
+// ── Collision ─────────────────────────────────────────────────────
+function checkCollisions() {
+  if (puck.dead) return;
+  for (const g of ghosts) {
+    if (g.eaten || g.inHouse) continue;
+    if (Math.hypot(puck.x-g.x, puck.y-g.y) < 13) {
+      if (g.frightened) {
+        g.eaten=true; g.frightened=false;
+        const pts = 200 * (1<<(eatMult-1));
+        score += pts; eatMult++;
+        scoreEl.textContent = score;
+        playEatGhostSfx();
+      } else {
+        doLoseLife(); return;
+      }
+    }
+  }
+}
+
+// ── Life / level ──────────────────────────────────────────────────
+function doLoseLife() {
+  lives--; updateLivesUI();
+  puck.dead=true; puck.deadTimer=0;
+  playDeathSfx();
+  if (lives<=0) {
+    state='gameover';
+    if (score>highScore){ highScore=score; highEl.textContent=highScore; }
+    showOverlay('GAME OVER','PRESS SPACE OR ENTER');
+  } else {
+    state='dying';
+    setTimeout(()=>{ initPuck(); initGhosts(); powerTimer=0; state='playing'; }, 2200);
+  }
+}
+
+
+
+function scheduleNextLevel() {
+  if (state==='levelup') return;
+  state='levelup';
+  setTimeout(()=>{
+    level++; levelEl.textContent=level;
+    initMaze(); initPuck(); initGhosts();
+    powerTimer=0; eatMult=1;
+    state='playing';
+  }, 2000);
+}
+
+
+
+function initGame() {
+  console.log('initGame called, state changing from', state, 'to playing');
+  score=0; lives=3; level=1;
+  scoreEl.textContent=0; levelEl.textContent=1;
+  powerTimer=0; eatMult=1;
+  initMaze(); initPuck(); initGhosts();
+  updateLivesUI();
+  state='playing';
+  hideOverlay();
+}
+
+
+
+// ── UI ────────────────────────────────────────────────────────────
+function showOverlay(m,s){ msgEl.textContent=m; subEl.textContent=s; overlay.style.display='flex'; }
+function hideOverlay()   { overlay.style.display='none'; }
+
+function updateLivesUI() {
+  livesRow.innerHTML='';
+  for (let i=0;i<lives;i++) {
+    const c=document.createElement('canvas');
+    c.width=18; c.height=18;
+    drawPuckOnCtx(c.getContext('2d'),9,9,8,0,0.28);
+    livesRow.appendChild(c);
+  }
+}
+
+
+function drawFog() {
+  const zone = currentZone;
+  const visEnd   = (ZONE_ROWS[zone].end + 1) * CELL;
+
+  let animProgress = 0;
+
+  // Animation for zone transitions
+  if (fogAnim && fogAnim.active) {
+    const elapsed = performance.now() - fogAnim.startTime;
+    animProgress = Math.min(elapsed / 500, 1);  // 500ms = 0.5 seconds
+
+    if (animProgress >= 1) {
+      fogAnim.active = false;
+    }
+  }
+
+
+
+
+  
+  // Top zone (rows 0-10)
+  const topStart = ZONE_ROWS[0].start * CELL;
+  const topEnd = (ZONE_ROWS[0].end + 1) * CELL;
+  
+  let topAlpha = (currentZone === 0) ? 0 : 1;  // Default: visible if in zone 0, hidden otherwise
+  
+  if (fogAnim && fogAnim.active) {
+    if (prevZone === 0) {
+      // Leaving zone 0: fade to blue (0 → 1)
+      topAlpha = animProgress;
+    } else if (currentZone === 0) {
+      // Entering zone 0: fade from blue (1 → 0)
+      topAlpha = 1 - animProgress;
+    }
+  }
+  
+  ctx.fillStyle = `rgba(0,0,150,${topAlpha})`;  // Blue rectangle
+  ctx.fillRect(0, topStart, W, topEnd);
+
+  ctx.fillStyle = '#222244';
+  ctx.fillRect(0, topEnd - 1, W, 2);
+
+  // Middle zone (rows 11-20)
+  const midStart = ZONE_ROWS[1].start * CELL;
+  const midEnd = (ZONE_ROWS[1].end + 1) * CELL;
+  
+  let midAlpha = (currentZone === 1) ? 0 : 1;  // Default: visible if in zone 1, hidden otherwise
+  
+  if (fogAnim && fogAnim.active) {
+    if (prevZone === 1) {
+      // Leaving zone 1: fade to blue (0 → 1)
+      midAlpha = animProgress;
+    } else if (currentZone === 1) {
+      // Entering zone 1: fade from blue (1 → 0)
+      midAlpha = 1 - animProgress;
+    }
+  }
+  
+  ctx.fillStyle = `rgba(0,0,150,${midAlpha})`;  // Blue rectangle
+  ctx.fillRect(0, midStart, W, midEnd - midStart);
+
+  ctx.fillStyle = '#222244';
+  ctx.fillRect(0, midEnd - 1, W, 2);
+
+  // Bottom zone (rows 21-30)
+  const bottomStart = ZONE_ROWS[2].start * CELL;
+  
+  let bottomAlpha = (currentZone === 2) ? 0 : 1;  // Default: visible if in zone 2, hidden otherwise
+  
+  if (fogAnim && fogAnim.active) {
+    if (prevZone === 2) {
+      // Leaving zone 2: fade to blue (0 → 1)
+      bottomAlpha = animProgress;
+    } else if (currentZone === 2) {
+      // Entering zone 2: fade from blue (1 → 0)
+      bottomAlpha = 1 - animProgress;
+    }
+  }
+  
+  ctx.fillStyle = `rgba(0,0,150,${bottomAlpha})`;  // Blue rectangle
+  ctx.fillRect(0, bottomStart, W, H);
+
+  ctx.fillStyle = '#222244';
+  ctx.fillRect(0, bottomStart - 1, W, 2);
+
+  // Zone label
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('ZONE: ' + ZONE_LABELS[zone], W - 6, visEnd - 6);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+
+
+
+function updateFog() {
+  const newZone = getPlayerZone();
+
+  if (newZone !== currentZone) {
+    prevZone = currentZone;
+    currentZone = newZone;
+
+    fogAnim.active = true;
+    fogAnim.startTime = performance.now();
+    fogAnim.direction = (newZone > prevZone) ? -1 : 1;
+    
+    console.log('Zone change detected:', prevZone, '→', currentZone, 'direction:', fogAnim.direction);
+  }
+}
+
+
+
+function drawPuckOnCtx(c, x, y, r, faceAngle, mouth) {
+  const start = faceAngle + mouth*Math.PI;
+  const end   = faceAngle + (2-mouth)*Math.PI;
+  c.fillStyle='#FFD700';
+  c.beginPath();
+  c.moveTo(x,y);
+  c.arc(x,y,r,start,end);
+  c.closePath();
+  c.fill();
+  // Eye
+  const ea = faceAngle - Math.PI/2;
+  c.fillStyle='#111';
+  c.beginPath();
+  c.arc(x+Math.cos(ea)*r*0.45, y+Math.sin(ea)*r*0.45, 1.5, 0, Math.PI*2);
+  c.fill();
+}
+
+
+
+function drawPuck() {
+  if (puck.dead) {
+    const frac=Math.min(puck.deadTimer/55, 1);
+    if (frac<1) {
+      ctx.fillStyle='#FFD700';
+      ctx.beginPath();
+      ctx.moveTo(puck.x, puck.y);
+      ctx.arc(puck.x,puck.y,9, Math.PI*frac, Math.PI*(2-frac));
+      ctx.closePath();
+      ctx.fill();
+    }
+    return;
+  }
+  let angle=0;
+  if      (puck.dirX===1)  angle=0;
+  else if (puck.dirX===-1) angle=Math.PI;
+  else if (puck.dirY===-1) angle=-Math.PI/2;
+  else if (puck.dirY===1)  angle=Math.PI/2;
+  drawPuckOnCtx(ctx, puck.x, puck.y, 9, angle, puck.mouth);
+}
+
+
+
+function drawGhost(g) {
+  const x=g.x, y=g.y, r=9;
+
+  if (g.eaten) {
+    // Just eyes drifting home
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.ellipse(x-3,y-1,3,3.5,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+3,y-1,3,3.5,0,0,Math.PI*2); ctx.fill();
+    const [ex,ey]=DIR[g.dk];
+    ctx.fillStyle='#00f';
+    ctx.beginPath(); ctx.arc(x-3+ex*2,y-1+ey*2,1.8,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+3+ex*2,y-1+ey*2,1.8,0,Math.PI*2); ctx.fill();
+    return;
+  }
+
+  // Body
+  let col=g.color;
+  if (g.frightened) {
+    const flash = powerTimer<100 && Math.floor(Date.now()/260)%2===0;
+    col = flash?'#ffffff':'#2222ee';
+  }
+  ctx.fillStyle=col;
+  ctx.beginPath();
+  ctx.arc(x,y-2,r,Math.PI,0,false);
+  ctx.lineTo(x+r,y+r);
+  for (let i=0;i<=4;i++) {
+    ctx.lineTo(x+r-i*(2*r/4), y+r-(i%2===0?0:5));
+  }
+  ctx.lineTo(x-r,y+r);
+  ctx.closePath();
+  ctx.fill();
+
+  // Face
+  if (!g.frightened) {
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.ellipse(x-3,y-2,3,3.5,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+3,y-2,3,3.5,0,0,Math.PI*2); ctx.fill();
+    const [ex,ey]=DIR[g.dk];
+    ctx.fillStyle='#00f';
+    ctx.beginPath(); ctx.arc(x-3+ex*2,y-2+ey*2,1.8,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+3+ex*2,y-2+ey*2,1.8,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(x-3,y-2,2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+3,y-2,2,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+    ctx.beginPath();
+    ctx.moveTo(x-5,y+3);
+    ctx.lineTo(x-3,y+5); ctx.lineTo(x-1,y+3);
+    ctx.lineTo(x+1,y+5); ctx.lineTo(x+3,y+3); ctx.lineTo(x+5,y+5);
+    ctx.stroke();
+  }
+}
+
+// ── Audio engine (Web Audio API) ──────────────────────────────────
+let audioCtx = null;
+let sfxEnabled = true;
+let sfxVolume  = 0.7;
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playTone(notes, waveType='square') {
+  if (!sfxEnabled) return;
+  const ac = getAudioCtx();
+  const master = ac.createGain();
+  master.gain.setValueAtTime(sfxVolume * 0.18, ac.currentTime);
+  master.connect(ac.destination);
+  let t = ac.currentTime;
+  for (const {f, d} of notes) {
+    const osc = ac.createOscillator();
+    const g   = ac.createGain();
+    osc.type = waveType;
+    osc.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    osc.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + d);
+    t += d;
+  }
+}
+
+function playPauseSfx() {
+  // Uses a fresh context so it fires even while main context is suspended
+  const tmp = new (window.AudioContext || window.webkitAudioContext)();
+  const notes = [{f:600,d:0.06},{f:480,d:0.06},{f:360,d:0.06},{f:240,d:0.09}];
+  const master = tmp.createGain();
+  master.gain.setValueAtTime(sfxVolume * 0.18, tmp.currentTime);
+  master.connect(tmp.destination);
+  let t = tmp.currentTime;
+  for (const {f,d} of notes) {
+    const o=tmp.createOscillator(), g=tmp.createGain();
+    o.type='square'; o.frequency.setValueAtTime(f,t);
+    g.gain.setValueAtTime(1,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+d);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t+d); t+=d;
+  }
+  setTimeout(()=>tmp.close(), 800);
+}
+
+function playUnpauseSfx() {
+  playTone([
+    {f:220,d:0.05},{f:330,d:0.05},{f:495,d:0.05},{f:660,d:0.08}
+  ], 'square');
+}
+
+function playDotSfx() {
+  playTone([{f:440,d:0.04},{f:880,d:0.04}], 'square');
+}
+
+function playPowerSfx() {
+  playTone([
+    {f:220,d:0.05},{f:330,d:0.05},{f:440,d:0.05},
+    {f:660,d:0.05},{f:880,d:0.08}
+  ], 'sawtooth');
+}
+
+function playEatGhostSfx() {
+  playTone([{f:600,d:0.04},{f:900,d:0.04},{f:700,d:0.06}], 'sine');
+}
+
+function playDeathSfx() {
+  playTone([
+    {f:494,d:0.07},{f:466,d:0.07},{f:440,d:0.07},
+    {f:415,d:0.07},{f:392,d:0.07},{f:370,d:0.07},
+    {f:349,d:0.07},{f:330,d:0.14}
+  ], 'sawtooth');
+}
+
+// ── Pause state ───────────────────────────────────────────────────
+let paused = false;
+
+const btnPause   = document.getElementById('btnPause');
+const btnSfx     = document.getElementById('btnSfx');
+const audioPanel = document.getElementById('audioPanel');
+const volSlider  = document.getElementById('volSlider');
+
+function togglePause() {
+  if (state === 'title' || state === 'gameover') return;
+  paused = !paused;
+  if (paused) {
+    btnPause.innerHTML = '&#9654; RESUME';
+    btnPause.classList.add('paused');
+    audioPanel.classList.add('visible'); // SHOW panel
+    if (audioCtx && audioCtx.state === 'running') audioCtx.suspend();
+    playPauseSfx();
+  } else {
+    btnPause.innerHTML = '&#9646;&#9646; PAUSE';
+    btnPause.classList.remove('paused');
+    audioPanel.classList.remove('visible'); // 🔥 HIDE panel
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    playUnpauseSfx();
+  }
+}
+
+btnPause.addEventListener('click', togglePause);
+
+btnSfx.addEventListener('click', () => {
+  sfxEnabled = !sfxEnabled;
+  btnSfx.textContent = sfxEnabled ? 'SFX ON' : 'SFX OFF';
+  btnSfx.className   = sfxEnabled ? 'on' : 'off';
+  if (sfxEnabled) playDotSfx();
+});
+
+volSlider.addEventListener('input', () => {
+  sfxVolume = volSlider.value / 100;
+  volSlider.style.background =
+    `linear-gradient(to right,#FFD700 0%,#FFD700 ${volSlider.value}%,#444 ${volSlider.value}%,#444 100%)`;
+});
+volSlider.style.background = 'linear-gradient(to right,#FFD700 0%,#FFD700 70%,#444 70%,#444 100%)';
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyP') { togglePause(); e.preventDefault(); }
+});
+
+// ── Zone visibility ───────────────────────────────────────────────
+// Map split into 3 equal horizontal thirds (rows 0-10, 11-20, 21-30)
+// Player can only see the third they are currently in.
+const ZONE_ROWS = [
+  { start: 0,  end: 10 },   // zone 0 = top third
+  { start: 11, end: 20 },   // zone 1 = middle third
+  { start: 21, end: 30 },   // zone 2 = bottom third
+];
+const ZONE_LABELS = ['TOP', 'MIDDLE', 'BOTTOM'];
+
+
+function getPlayerZone() {
+  const row = Math.floor(puck.y / CELL);
+  if (row <= 10) return 0;
+  if (row <= 20) return 1;
+  return 2;
+}
+
+
+let currentZone = 2; // start bottom (player spawn)
+let prevZone = 2;
+
+let fogAnim = {
+  active: false,
+  startTime: 0,
+  duration: 450, // ms
+  direction: 1 // 1 = down, -1 = up
+};
+
+
+
+// Draw solid black over the two hidden zones, with a thin edge line
+// where each hidden zone meets the visible one so the border is clear.
+// Detect zone change (SAFE location)
+
+
+
+function loop() {
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,H);
+
+  drawMaze(); /////undefined
+
+  if (!paused && (state==='playing'||state==='dying')) {
+    updatePuck();
+    ghosts.forEach(updateGhost);
+
+    updateFog();
+
+
+    if (powerTimer>0) {
+      powerTimer--;
+      if (powerTimer===0) {
+        ghosts.forEach(g=>{
+          if(!g.eaten) g.frightened=false;
+        });
+      }
+    }
+
+    if (state==='playing') checkCollisions();
+  }
+
+  drawPuck();
+  ghosts.forEach(drawGhost);
+
+  drawFog(); //added
+
+
+  if (powerTimer>0) {
+    ctx.fillStyle='rgba(60,60,255,0.3)';
+    ctx.fillRect(0,H-4,W*(powerTimer/380),4);
+  }
+
+  // Pause overlay
+  if (paused) {
+    ctx.fillStyle='rgba(0,0,0,0.62)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#FFD700';
+    ctx.font='bold 28px monospace';
+    ctx.textAlign='center';
+    ctx.fillText('PAUSED', W/2, H/2 - 12);
+    ctx.font='12px monospace';
+    ctx.fillStyle='#aaa';
+    ctx.fillText('press P or click RESUME', W/2, H/2 + 18);
+    ctx.textAlign='left';
+  }
+
+  requestAnimationFrame(loop); // ✅ REQUIRED
+}
+
+
+
+ 
+
+// ── Input ─────────────────────────────────────────────────────────
+document.addEventListener('keydown', e=>{
+  if (e.code==='Escape' && paused) { togglePause(); e.preventDefault(); return; }
+  if ((e.code==='Space'||e.code==='Enter') && (state==='title'||state==='gameover')) {
+    initGame(); 
+    e.preventDefault();
+    return;
+  }
+  if (state!=='playing' || paused) return;
+  if (e.code==='ArrowLeft' ||e.code==='KeyA') { puck.wantX=-1; puck.wantY= 0; }
+  if (e.code==='ArrowRight'||e.code==='KeyD') { puck.wantX= 1; puck.wantY= 0; }
+  if (e.code==='ArrowUp'   ||e.code==='KeyW') { puck.wantX= 0; puck.wantY=-1; }
+  if (e.code==='ArrowDown' ||e.code==='KeyS') { puck.wantX= 0; puck.wantY= 1; }
+  e.preventDefault();
+});
+
+
+let tx0=0, ty0=0;
+canvas.addEventListener('touchstart',e=>{ tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; e.preventDefault(); },{passive:false});
+canvas.addEventListener('touchend',e=>{
+  if (state==='title'||state==='gameover') { initGame(); return; }
+  if (state!=='playing') return;
+  const dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0;
+  if (Math.abs(dx)>Math.abs(dy)) { puck.wantX=dx>0?1:-1; puck.wantY=0; }
+  else                            { puck.wantX=0; puck.wantY=dy>0?1:-1; }
+  e.preventDefault();
+},{passive:false});
+
+
+// ── Boot ──────────────────────────────────────────────────────────
+state='title';
+score=0; lives=3;
+
+initMaze();
+initPuck();
+initGhosts();
+updateLivesUI();
+
+showOverlay('PUCKMAN','PRESS SPACE OR ENTER');
+
+requestAnimationFrame(loop); // ✅ start loop properly
+</script>
+</body>
+</html>
